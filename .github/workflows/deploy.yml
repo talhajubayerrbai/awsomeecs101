@@ -40,8 +40,6 @@ jobs:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: [test]
-    outputs:
-      image_uri: ${{ steps.build_push.outputs.image_uri }}
 
     steps:
       - name: Checkout code
@@ -87,7 +85,6 @@ jobs:
           IMAGE_URI="${REGISTRY}/${REPO}:${TAG}"
           docker build -t "${IMAGE_URI}" .
           docker push "${IMAGE_URI}"
-          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
 
   provision:
     name: Provision Infrastructure
@@ -105,6 +102,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -121,11 +122,16 @@ jobs:
 
       - name: Terraform Apply
         working-directory: terraform
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPO: ${{ secrets.PROJECT_NAME }}
+          TAG: ${{ github.sha }}
         run: |
+          IMAGE_URI="${REGISTRY}/${REPO}:${TAG}"
           terraform apply -auto-approve \
             -var="project_name=${{ secrets.PROJECT_NAME }}" \
             -var="aws_region=${{ secrets.AWS_REGION }}" \
-            -var="image_uri=${{ needs.build.outputs.image_uri }}"
+            -var="image_uri=${IMAGE_URI}"
 
   verify:
     name: Verify Deployment
